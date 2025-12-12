@@ -2,6 +2,10 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import sgMail from '@sendgrid/mail'
+import swaggerUi from 'swagger-ui-express'
+import YAML from 'js-yaml'
+import fs from 'fs'
+import path from 'path'
 
 dotenv.config()
 
@@ -57,6 +61,9 @@ const normalizeIp = (ip) => {
 
 // IP check middleware
 app.use((req, res, next) => {
+    // Allow public access to docs and health endpoints regardless of IP allowlist
+    const bypassPaths = ['/docs', '/swagger.yaml', '/health']
+    if (bypassPaths.some(p => req.path.startsWith(p))) return next()
     if (allowedIPs.length === 0) return next() // not configured => allow all
     if (allowedIPs.includes('*')) return next()
     const forwarded = req.headers['x-forwarded-for']
@@ -86,6 +93,9 @@ app.post('/contact', async (req, res) => {
     }
 
     try {
+        if (!SENDGRID_KEY) return res.status(500).json({ ok: false, error: 'SENDGRID_API_KEY not configured' })
+        if (!TO_EMAIL) return res.status(500).json({ ok: false, error: 'TO_EMAIL not configured' })
+
         // email para você (TO_EMAIL)
         const adminMsg = {
             to: TO_EMAIL,
@@ -104,10 +114,37 @@ app.post('/contact', async (req, res) => {
             html: `<p>Olá ${name},</p><p>Recebemos sua mensagem e vamos responder em breve.</p><h4>Sua mensagem</h4><pre>${message}</pre>`,
         }
 
-        await sgMail.send(adminMsg)
-        await sgMail.send(userMsg)
+        console.log('[contact] Sending to admin:', TO_EMAIL)
+        console.log('[contact] Sending confirmation to user:', email)
 
-        return res.json({ ok: true, sentTo: [TO_EMAIL, email] })
+        // Send both and collect results
+        const results = await Promise.allSettled([sgMail.send(adminMsg), sgMail.send(userMsg)])
+
+        const sentTo = []
+        const errors = []
+
+        results.forEach((r, idx) => {
+            const target = idx === 0 ? TO_EMAIL : email
+            if (r.status === 'fulfilled') {
+                // sgMail resolves to an array [response]
+                let code = 'unknown'
+                try {
+                    const v = r.value
+                    const resObj = Array.isArray(v) && v[0] ? v[0] : v
+                    code = resObj && resObj.statusCode ? resObj.statusCode : 'unknown'
+                } catch (e) {
+                    // ignore
+                }
+                console.log(`[contact] SendGrid accepted message to ${target} (status ${code})`)
+                sentTo.push(target)
+            } else {
+                console.error(`[contact] Failed to send to ${target}:`, r.reason?.message || r.reason)
+                errors.push({ to: target, error: String(r.reason?.message || r.reason) })
+            }
+        })
+
+        if (errors.length > 0) return res.status(500).json({ ok: false, sentTo, errors })
+        return res.json({ ok: true, sentTo })
     } catch (err) {
         console.error('Erro ao enviar e-mail', err)
         return res.status(500).json({ error: 'Erro interno ao enviar e-mail' })
@@ -116,4 +153,32 @@ app.post('/contact', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server listening on ${PORT}`)
+})
+
+// Swagger UI - serve local swagger.yaml
+try {
+    const swaggerPath = path.resolve('./swagger.yaml')
+    const swaggerFile = fs.readFileSync(swaggerPath, 'utf8')
+    const swaggerDoc = YAML.load(swaggerFile)
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc))
+    app.get('/swagger.yaml', (req, res) => {
+        res.type('text/yaml')
+        res.send(swaggerFile)
+    })
+} catch (err) {
+    console.warn('Swagger file not found or invalid:', err.message)
+}
+
+// Health endpoint
+app.get('/health', (req, res) => {
+    const uptime = process.uptime()
+    let version = 'unknown'
+    try {
+        // import via dynamic read to avoid import assertions issues
+        const pkg = JSON.parse(fs.readFileSync(path.resolve('./package.json'), 'utf8'))
+        version = pkg.version || version
+    } catch (e) {
+        // ignore
+    }
+    res.json({ ok: true, uptime, version, timestamp: new Date().toISOString() })
 })

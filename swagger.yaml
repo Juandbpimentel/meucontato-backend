@@ -1,0 +1,111 @@
+openapi: 3.0.1
+info:
+  title: Meu Contato - API
+  version: 1.0.0
+  description: API minimal para envio de mensagens via SendGrid.
+servers:
+  - url: /
+paths:
+  /:
+    get:
+      summary: Verifica se o servidor está ativo
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Server ativo"
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Retorna status de saúde, uptime e versão da API
+      responses:
+        "200":
+          description: Health OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  uptime:
+                    type: number
+                    description: Uptime em segundos
+                  version:
+                    type: string
+                    example: 1.0.0
+                  timestamp:
+                    type: string
+                    format: date-time
+  /contact:
+    post:
+      summary: Envia um contato para o administrador e confirmação para o usuário
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactRequest"
+      responses:
+        "200":
+          description: Envio OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  sentTo:
+                    type: array
+                    items:
+                      type: string
+                    example: ["contato@seusite.com", "remetente@exemplo.com"]
+        "400":
+          description: Bad request - campos faltando
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    ContactRequest:
+      type: object
+      required:
+        - name
+        - email
+        - message
+      properties:
+        name:
+          type: string
+          example: João
+        email:
+          type: string
+          format: email
+          example: joao@exemplo.com
+        message:
+          type: string
+          example: "Olá, gostaria de mais informações."
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Missing required fields: name, email, message"
