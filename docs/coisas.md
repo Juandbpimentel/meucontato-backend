@@ -1,7 +1,9 @@
 # Planejamento da Apresentação: Refatoração no Rocket.Chat
 
 **Tema:** Qualidade de Software e Refatoração de Code Smells em React/TypeScript
+
 **Objeto de Estudo:** Rocket.Chat (Fork)
+
 **Base Teórica:** Engenharia de Software (Fowler) & Guia Prático de Refatoração
 
 ---
